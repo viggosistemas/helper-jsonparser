@@ -31,7 +31,7 @@ type
       class function Serializer(bUseIgnore: boolean = True): IJSONParserSerializer<TObject>; overload;
       class function Serializer<T: class, constructor>(bUseIgnore: boolean = True): IJSONParserSerializer<T>; overload;
 
-      class function Deserializer(bUseIgnore: boolean = True): IJSONParserDeserializer<TObject>; overload;
+      class function Deserializer(bUseIgnore: boolean = True; bUseBackslash: boolean = False): IJSONParserDeserializer<TObject>; overload;
       class function Deserializer<T: class, constructor>(bUseIgnore: boolean = True): IJSONParserDeserializer<T>; overload;
   end;
 
@@ -41,9 +41,9 @@ uses
   JSONParser.Serializer,
   JSONParser.Deserializer;
 
-class function TJSONParserDefault.Deserializer(bUseIgnore: boolean = True): IJSONParserDeserializer<TObject>;
+class function TJSONParserDefault.Deserializer(bUseIgnore: boolean = True; bUseBackslash: boolean = False): IJSONParserDeserializer<TObject>;
 begin
-  result := TJSONParserDeserializer<TObject>.New(bUseIgnore);
+  result := TJSONParserDeserializer<TObject>.New(bUseIgnore, bUseBackslash);
 end;
 
 class function TJSONParserDefault.Deserializer<T>(bUseIgnore: boolean = True): IJSONParserDeserializer<T>;
