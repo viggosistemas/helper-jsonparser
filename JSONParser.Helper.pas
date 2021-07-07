@@ -20,6 +20,7 @@ type
     {$ENDIF}
 
     class function ObjectToJSONString(Value: TObject): string;
+    class function ObjectToJSONStringWithBackslash(Value: TObject): string;
 
     class function fromObject(Value: TObject): TJSONObject;
     class function fromFile  (Value: String) : TJSONObject;
@@ -34,7 +35,7 @@ type
   TObjectHelper = class helper for TObject
     public
       function ToJSONObject: TJSONObject;
-      function ToJSONString(bFormat: Boolean = False): string;
+      function ToJSONString(bFormat: Boolean = False; aBackslash: Boolean = False): string;
       procedure SaveToJSONFile(AFileName: String);
 
       procedure fromJSONObject(Value: TJSONObject);
@@ -95,6 +96,11 @@ end;
 class function TJSONParserObjectHelper.ObjectToJSONString(Value: TObject): string;
 begin
   result := TJSONParserDefault.Deserializer.ObjectToJsonString(Value);
+end;
+
+class function TJSONParserObjectHelper.ObjectToJSONStringWithBackslash(Value: TObject): string;
+begin
+  result := TJSONParserDefault.Deserializer(True, True).ObjectToJsonString(Value);
 end;
 
 procedure TJSONParserObjectHelper.SaveToFile(AFileName: String);
@@ -170,9 +176,13 @@ begin
   result := TJSONObject.fromObject(Self);
 end;
 
-function TObjectHelper.ToJSONString(bFormat: Boolean): string;
+function TObjectHelper.ToJSONString(bFormat: Boolean = False; aBackslash: Boolean = False): string;
 begin
-  result := TJSONObject.ObjectToJSONString(Self);
+  if aBackslash then
+    result := TJSONObject.ObjectToJSONStringWithBackslash(Self)
+  else
+    result := TJSONObject.ObjectToJSONString(Self);
+
   if bFormat then
     result := TJSONObject.format(result);
 end;

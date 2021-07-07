@@ -19,6 +19,7 @@ type TJSONParserDeserializer<T: class, constructor> = class(TJSONParserBase, IJS
 
   private
     FUseIgnore: Boolean;
+    FUseBackslash: Boolean;
 
     procedure ProcessOptions(AJsonObject: TJSOnObject);
 
@@ -34,8 +35,8 @@ type TJSONParserDeserializer<T: class, constructor> = class(TJSONParserBase, IJS
 
     function ListToJSONArray(Value: TObjectList<T>): TJSONArray;
 
-    class function New(bUseIgnore: Boolean = True): IJSONParserDeserializer<T>;
-    constructor create(bUseIgnore: Boolean = True); reintroduce;
+    class function New(bUseIgnore: Boolean = True; bUseBackslash: Boolean = True): IJSONParserDeserializer<T>;
+    constructor create(bUseIgnore: Boolean = True; bUseBackslash: Boolean = True); reintroduce;
     destructor  Destroy; override;
 end;
 
@@ -46,10 +47,11 @@ implementation
 uses
   JSONParser.Helper;
 
-constructor TJSONParserDeserializer<T>.create(bUseIgnore: Boolean = True);
+constructor TJSONParserDeserializer<T>.create(bUseIgnore: Boolean = True; bUseBackslash: Boolean = True);
 begin
   inherited create;
   FUseIgnore := bUseIgnore;
+  FUseBackslash := bUseBackslash;
 end;
 
 destructor TJSONParserDeserializer<T>.Destroy;
@@ -84,9 +86,9 @@ begin
     end;
 end;
 
-class function TJSONParserDeserializer<T>.New(bUseIgnore: Boolean = True): IJSONParserDeserializer<T>;
+class function TJSONParserDeserializer<T>.New(bUseIgnore: Boolean = True; bUseBackslash: Boolean = True): IJSONParserDeserializer<T>;
 begin
-  result := Self.create(bUseIgnore);
+  result := Self.create(bUseIgnore, bUseBackslash);
 end;
 
 function TJSONParserDeserializer<T>.ObjectToJsonObject(Value: TObject): TJSONObject;
@@ -196,7 +198,12 @@ begin
   value := AProperty.GetValue(AObject);
 
   if AProperty.IsString then
-    Exit('"' + Value.AsString.Replace('\', '\\') + '"');
+  begin
+    if FUseBackslash then
+      Exit('\"' + Value.AsString.Replace('\', '\\') + '\"')
+    else
+      Exit('"' + Value.AsString.Replace('\', '\\') + '"');
+  end;
 
   if AProperty.IsInteger then
     Exit(value.AsInteger.ToString);
@@ -255,7 +262,11 @@ begin
        (not rttiProperty.IsEmpty(AObject))
     then
     begin
-      result := result + Format('"%s":', [rttiProperty.Name]);
+      if FUseBackslash then
+        result := result + Format('\"%s\":', [rttiProperty.Name])
+      else
+        result := result + Format('"%s":', [rttiProperty.Name]);
+
       result := result + ValueToJson(AObject, rttiProperty) + ',';
     end;
   end;
