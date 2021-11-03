@@ -183,8 +183,13 @@ begin
   begin
     if value.GetArrayElement(i).IsObject then
       result := Result + ObjectToJsonString(value.GetArrayElement(i).AsObject) + ','
-	else
-	  result := Result + '"' + (value.GetArrayElement(i).AsString) + '"' + ',';
+    else
+    begin
+      if value.GetArrayElement(i).IsOrdinal then
+        result := Result + (VarToStr(value.GetArrayElement(i).AsVariant)) + ','
+      else
+        result := Result + '"' + (VarToStr(value.GetArrayElement(i).AsVariant)) + '"' + ',' ;
+    end;
   end;
   
   result[Length(Result)] := ']';
