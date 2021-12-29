@@ -35,8 +35,8 @@ type TJSONParserDeserializer<T: class, constructor> = class(TJSONParserBase, IJS
 
     function ListToJSONArray(Value: TObjectList<T>): TJSONArray;
 
-    class function New(bUseIgnore: Boolean = True; bUseBackslash: Boolean = True): IJSONParserDeserializer<T>;
-    constructor create(bUseIgnore: Boolean = True; bUseBackslash: Boolean = True); reintroduce;
+    class function New(bUseIgnore: Boolean = True; bUseBackslash: Boolean = False): IJSONParserDeserializer<T>;
+    constructor create(bUseIgnore: Boolean = True; bUseBackslash: Boolean = False); reintroduce;
     destructor  Destroy; override;
 end;
 
@@ -47,7 +47,7 @@ implementation
 uses
   JSONParser.Helper;
 
-constructor TJSONParserDeserializer<T>.create(bUseIgnore: Boolean = True; bUseBackslash: Boolean = True);
+constructor TJSONParserDeserializer<T>.create(bUseIgnore: Boolean = True; bUseBackslash: Boolean = False);
 begin
   inherited create;
   FUseIgnore := bUseIgnore;
@@ -86,7 +86,7 @@ begin
     end;
 end;
 
-class function TJSONParserDeserializer<T>.New(bUseIgnore: Boolean = True; bUseBackslash: Boolean = True): IJSONParserDeserializer<T>;
+class function TJSONParserDeserializer<T>.New(bUseIgnore: Boolean = True; bUseBackslash: Boolean = False): IJSONParserDeserializer<T>;
 begin
   result := Self.create(bUseIgnore, bUseBackslash);
 end;
@@ -108,7 +108,7 @@ begin
   if not Assigned(Value) then
     Exit('{}');
 
-  rttiType := TJsonParserRTTI.GetInstance.GetType(Value.ClassType);
+  rttiType := TGBRTTI.GetInstance.GetType(Value.ClassType);
 
   result := ObjectToJsonString(Value, rttiType);
 end;
@@ -164,13 +164,14 @@ var
   method  : TRttiMethod;
   value   : TValue;
   i       : Integer;
+  jsonValue: string;
 begin
   value := AProperty.GetValue(AObject);
 
   if value.AsObject = nil then
     Exit('[]');
 
-  rttiType := TJsonParserRTTI.GetInstance.GetType(value.AsObject.ClassType);
+  rttiType := TGBRTTI.GetInstance.GetType(value.AsObject.ClassType);
 
   method   := rttiType.GetMethod('ToArray');
   value    := method.Invoke(value.AsObject, []);
@@ -183,12 +184,21 @@ begin
   begin
     if value.GetArrayElement(i).IsObject then
       result := Result + ObjectToJsonString(value.GetArrayElement(i).AsObject) + ','
-    else
+  	else
     begin
-      if value.GetArrayElement(i).IsOrdinal then
-        result := Result + (VarToStr(value.GetArrayElement(i).AsVariant)) + ','
+      rttiType := AProperty.GetListType(AObject);
+      jsonValue:= EmptyStr;
+
+      if rttiType.TypeKind.IsString then
+        jsonValue := '"' + value.GetArrayElement(i).AsString + '"'
       else
-        result := Result + '"' + (VarToStr(value.GetArrayElement(i).AsVariant)) + '"' + ',' ;
+      if rttiType.TypeKind.IsInteger then
+        jsonValue := value.GetArrayElement(i).AsInteger.ToString
+      else
+      if rttiType.TypeKind.IsFloat then
+        jsonValue := value.GetArrayElement(i).AsExtended.ToString;
+
+      result := result + jsonValue + ',';
     end;
   end;
   
@@ -199,16 +209,13 @@ function TJSONParserDeserializer<T>.ValueToJson(AObject: TObject; AProperty: TRt
 var
   value : TValue;
   data  : TDateTime;
+  listType: TRttiType;
+  i: Integer;
 begin
   value := AProperty.GetValue(AObject);
 
   if AProperty.IsString then
-  begin
-    if FUseBackslash then
-      Exit('\"' + Value.AsString.Replace('\', '\\') + '\"')
-    else
-      Exit('"' + Value.AsString.Replace('\', '\\') + '"');
-  end;
+    Exit('"' + Value.AsString.Replace('\', '\\').Replace('"', '\"') + '"');
 
   if AProperty.IsInteger then
     Exit(value.AsInteger.ToString);
@@ -221,6 +228,28 @@ begin
 
   if AProperty.IsBoolean then
     Exit(IfThen(value.AsBoolean, 'true', 'false'));
+
+  if AProperty.IsArray then
+  begin
+    result := '[';
+
+    listType := AProperty.GetListType(AObject);
+    for i := 0 to Pred(value.GetArrayLength) do
+    begin
+      if listType.TypeKind.IsString then
+        result := result + '"' + value.GetArrayElement(i).AsString.Replace('"', '\"') + '"'
+      else
+      if listType.TypeKind.IsInteger then
+        result := Result + value.GetArrayElement(i).AsInteger.ToString
+      else
+      if listType.TypeKind.IsFloat then
+        result := Result + value.GetArrayElement(i).AsExtended.ToString;
+
+      result := result + ',';
+    end;
+
+    result[Length(Result)] := ']';
+  end;
 
   if AProperty.IsDateTime then
   begin
@@ -251,7 +280,7 @@ begin
       result := '"' + result + '"';
       Exit;
     end;
-    Exit('"' + VartoStrDef(value.AsVariant, '') + '"')
+    Exit('"' + VartoStrDef(value.AsVariant, '').Replace('"', '\"') + '"')
   end;
 end;
 
@@ -267,11 +296,7 @@ begin
        (not rttiProperty.IsEmpty(AObject))
     then
     begin
-      if FUseBackslash then
-        result := result + Format('\"%s\":', [rttiProperty.Name])
-      else
-        result := result + Format('"%s":', [rttiProperty.Name]);
-
+      result := result + Format('"%s":', [rttiProperty.JSONName]);
       result := result + ValueToJson(AObject, rttiProperty) + ',';
     end;
   end;
