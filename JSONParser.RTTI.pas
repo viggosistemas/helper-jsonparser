@@ -5,18 +5,20 @@ interface
 uses
   System.Rtti,
   System.SysUtils,
+  System.TypInfo,
+  JSONParser.Config,
   JSONParser.Attributes;
 
 type
-  IJsonParserRTTI = interface
+  IGBRTTI = interface
     ['{B432A34C-5601-4254-A951-0DE059E73CCE}']
     function GetType(AClass: TClass): TRttiType;
     function FindType(ATypeName: string): TRttiType;
   end;
 
-  TJsonParserRTTI = class(TInterfacedObject, IJsonParserRTTI)
+  TGBRTTI = class(TInterfacedObject, IGBRTTI)
     private
-      class var FInstance: IJsonParserRTTI;
+      class var FInstance: IGBRTTI;
 
     private
       FContext: TRttiContext;
@@ -26,17 +28,27 @@ type
       function GetType (AClass: TClass): TRttiType;
       function FindType(ATypeName: string): TRttiType;
 
-      class function GetInstance: IJsonParserRTTI;
+      class function GetInstance: IGBRTTI;
       constructor create;
       destructor  Destroy; override;
   end;
 
-  TJsonParserRTTITypeHelper = class helper for TRttiType
+  TTypeKindHelper = record helper for TTypeKind
+  public
+    function IsString   : Boolean;
+    function IsInteger  : Boolean;
+    function IsArray    : Boolean;
+    function IsObject   : Boolean;
+    function IsFloat    : Boolean;
+    function IsVariant  : Boolean;
+  end;
+
+  TGBRTTITypeHelper = class helper for TRttiType
     public
       function IsList: Boolean;
   end;
 
-  TJsonParserRTTIPropertyHelper = class helper for TRttiProperty
+  TGBRTTIPropertyHelper = class helper for TRttiProperty
     public
       function IsList     : Boolean;
       function IsString   : Boolean;
@@ -49,16 +61,18 @@ type
       function IsBoolean  : Boolean;
       function IsVariant  : Boolean;
 
+      function JSONName: String;
+
       function GetAttribute<T: TCustomAttribute>: T;
 
       function IsEmpty(AObject: TObject): Boolean;
-
       function IsIgnore(AClass: TClass): Boolean;
+      function IsReadOnly: Boolean;
 
       function GetListType(AObject: TObject): TRttiType;
   end;
 
-  TJsonParserObjectHelper = class helper for TObject
+  TGBObjectHelper = class helper for TObject
     public
       function invokeMethod(const MethodName: string; const Parameters: array of TValue): TValue;
       function GetPropertyValue(Name: String): TValue;
@@ -70,44 +84,44 @@ type
 
 implementation
 
-{ TJsonParserRTTI }
+{ TGBRTTI }
 
-constructor TJsonParserRTTI.create;
+constructor TGBRTTI.create;
 begin
   raise Exception.Create('Utilize o Construtor GetInstance.');
 end;
 
-constructor TJsonParserRTTI.createPrivate;
+constructor TGBRTTI.createPrivate;
 begin
   FContext := TRttiContext.Create;
 end;
 
-destructor TJsonParserRTTI.Destroy;
+destructor TGBRTTI.Destroy;
 begin
   FContext.Free;
   inherited;
 end;
 
-function TJsonParserRTTI.FindType(ATypeName: string): TRttiType;
+function TGBRTTI.FindType(ATypeName: string): TRttiType;
 begin
   Result := FContext.FindType(ATypeName);
 end;
 
-class function TJsonParserRTTI.GetInstance: IJsonParserRTTI;
+class function TGBRTTI.GetInstance: IGBRTTI;
 begin
   if not Assigned(FInstance) then
-    FInstance := TJsonParserRTTI.createPrivate;
+    FInstance := TGBRTTI.createPrivate;
   result := FInstance;
 end;
 
-function TJsonParserRTTI.GetType(AClass: TClass): TRttiType;
+function TGBRTTI.GetType(AClass: TClass): TRttiType;
 begin
   result := FContext.GetType(AClass);
 end;
 
-{ TJsonParserRTTITypeHelper }
+{ TGBRTTITypeHelper }
 
-function TJsonParserRTTITypeHelper.IsList: Boolean;
+function TGBRTTITypeHelper.IsList: Boolean;
 begin
   result := False;
 
@@ -118,9 +132,9 @@ begin
     Exit(True);
 end;
 
-{ TJsonParserRTTIPropertyHelper }
+{ TGBRTTIPropertyHelper }
 
-function TJsonParserRTTIPropertyHelper.GetAttribute<T>: T;
+function TGBRTTIPropertyHelper.GetAttribute<T>: T;
 var
   i: Integer;
 begin
@@ -130,40 +144,45 @@ begin
       Exit(T( Self.GetAttributes[i]));
 end;
 
-function TJsonParserRTTIPropertyHelper.GetListType(AObject: TObject): TRttiType;
+function TGBRTTIPropertyHelper.GetListType(AObject: TObject): TRttiType;
 var
   ListType     : TRttiType;
   ListTypeName : string;
 begin
-  ListType := TJsonParserRTTI.GetInstance.GetType(Self.GetValue(AObject).AsObject.ClassType);
-  ListTypeName := ListType.ToString;
+  if not Self.GetValue(AObject).IsArray then
+  begin
+    ListType := TGBRTTI.GetInstance.GetType(Self.GetValue(AObject).AsObject.ClassType);
+    ListTypeName := ListType.ToString;
+  end
+  else
+    ListTypeName := Self.PropertyType.ToString;
 
   ListTypeName := ListTypeName.Replace('TObjectList<', EmptyStr);
   ListTypeName := ListTypeName.Replace('TList<', EmptyStr);
+  ListTypeName := ListTypeName.Replace('TArray<', EmptyStr);
   ListTypeName := ListTypeName.Replace('>', EmptyStr);
 
-  result := TJsonParserRTTI.GetInstance.FindType(ListTypeName);
+  result := TGBRTTI.GetInstance.FindType(ListTypeName);
 end;
 
-function TJsonParserRTTIPropertyHelper.IsArray: Boolean;
+function TGBRTTIPropertyHelper.IsArray: Boolean;
 begin
-  Result := Self.PropertyType.TypeKind in
-    [tkSet, tkArray, tkDynArray]
+  Result := Self.PropertyType.TypeKind.IsArray;
 end;
 
-function TJsonParserRTTIPropertyHelper.IsBoolean: Boolean;
+function TGBRTTIPropertyHelper.IsBoolean: Boolean;
 begin
   result := Self.PropertyType.ToString.ToLower.Equals('boolean');
 end;
 
-function TJsonParserRTTIPropertyHelper.IsDateTime: Boolean;
+function TGBRTTIPropertyHelper.IsDateTime: Boolean;
 begin
   result := (Self.PropertyType.ToString.ToLower.Equals('tdatetime')) or
              (Self.PropertyType.ToString.ToLower.Equals('tdate')) or
              (Self.PropertyType.ToString.ToLower.Equals('ttime'));
 end;
 
-function TJsonParserRTTIPropertyHelper.IsEmpty(AObject: TObject): Boolean;
+function TGBRTTIPropertyHelper.IsEmpty(AObject: TObject): Boolean;
 var
   objectList : TObject;
 begin
@@ -178,13 +197,13 @@ begin
   if (Self.IsObject) and (Self.GetValue(AObject).AsObject = nil) then
     Exit(True);
 
-  if (Self.IsArray) and (Self.GetValue(AObject).GetArrayLength = 0) then
+  if (Self.IsArray) and ((Self.GetValue(AObject).IsEmpty) or (Self.GetValue(AObject).GetArrayLength = 0)) then
     Exit(True);
 
   if (Self.IsList) then
   begin
     objectList := Self.GetValue(AObject).AsObject;
-    if objectList.GetPropertyValue('Count').AsInteger = 0 then
+    if (not Assigned(objectList)) or (objectList.GetPropertyValue('Count').AsInteger = 0) then
       Exit(True);
   end;
 
@@ -195,17 +214,17 @@ begin
     Exit(True);
 end;
 
-function TJsonParserRTTIPropertyHelper.IsEnum: Boolean;
+function TGBRTTIPropertyHelper.IsEnum: Boolean;
 begin
   result := (not IsBoolean) and (Self.PropertyType.TypeKind = tkEnumeration);
 end;
 
-function TJsonParserRTTIPropertyHelper.IsFloat: Boolean;
+function TGBRTTIPropertyHelper.IsFloat: Boolean;
 begin
-  result := (Self.PropertyType.TypeKind = tkFloat) and (not IsDateTime);
+  result := (Self.PropertyType.TypeKind.IsFloat) and (not IsDateTime);
 end;
 
-function TJsonParserRTTIPropertyHelper.IsIgnore(AClass: TClass): Boolean;
+function TGBRTTIPropertyHelper.IsIgnore(AClass: TClass): Boolean;
 var
   ignoreProperties: TArray<String>;
   i: Integer;
@@ -234,12 +253,12 @@ begin
   end;
 end;
 
-function TJsonParserRTTIPropertyHelper.IsInteger: Boolean;
+function TGBRTTIPropertyHelper.IsInteger: Boolean;
 begin
-  result := Self.PropertyType.TypeKind in [tkInt64, tkInteger];
+  result := Self.PropertyType.TypeKind.IsInteger;
 end;
 
-function TJsonParserRTTIPropertyHelper.IsList: Boolean;
+function TGBRTTIPropertyHelper.IsList: Boolean;
 begin
   Result := False;
 
@@ -250,59 +269,103 @@ begin
     Exit(True);
 end;
 
-function TJsonParserRTTIPropertyHelper.IsObject: Boolean;
+function TGBRTTIPropertyHelper.IsObject: Boolean;
 begin
-  result := (not IsList) and (Self.PropertyType.TypeKind = tkClass);
+  result := (not IsList) and (Self.PropertyType.TypeKind.IsObject);
 end;
 
-function TJsonParserRTTIPropertyHelper.IsString: Boolean;
+function TGBRTTIPropertyHelper.IsReadOnly: Boolean;
+var
+  prop : JSONProp;
 begin
-  result := Self.PropertyType.TypeKind in
-    [tkChar,
-     tkString,
-     tkWChar,
-     tkLString,
-     tkWString,
-     tkUString];
+  result := False;
+  prop := GetAttribute<JSONProp>;
+  if Assigned(prop) then
+    result := prop.readOnly;
 end;
 
-function TJsonParserRTTIPropertyHelper.IsVariant: Boolean;
+function TGBRTTIPropertyHelper.IsString: Boolean;
 begin
-  result := Self.PropertyType.TypeKind = tkVariant;
+  result := Self.PropertyType.TypeKind.IsString;
 end;
 
-{ TJsonParserObjectHelper }
+function TGBRTTIPropertyHelper.IsVariant: Boolean;
+begin
+  result := Self.PropertyType.TypeKind.IsVariant;
+end;
 
-class function TJsonParserObjectHelper.GetAttribute<T>: T;
+function TGBRTTIPropertyHelper.JSONName: String;
+var
+  I: Integer;
+  LField: TArray<Char>;
+  prop : JSONProp;
+begin
+  result := Self.Name;
+  prop := GetAttribute<JSONProp>;
+  if (Assigned(prop)) and (not prop.name.IsEmpty) then
+    result := prop.name;
+
+  case TJSONParserConfig.GetInstance.CaseDefinition of
+    cdLower: result := result.ToLower;
+    cdUpper: result := result.ToUpper;
+
+    cdLowerCamelCase: begin
+      // Copy From DataSet-Serialize - https://github.com/viniciussanchez/dataset-serialize
+      // Thanks Vinicius Sanchez
+      LField := Self.Name.ToCharArray;
+      I := Low(LField);
+      While i <= High(LField) do
+      begin
+        if (LField[I] = '_') then
+        begin
+          Inc(I);
+          Result := Result + UpperCase(LField[I]);
+        end
+        else
+          Result := Result + LowerCase(LField[I]);
+        Inc(I);
+      end;
+      if Result.IsEmpty then
+        Result := Self.Name;
+    end;
+  end;
+end;
+
+{ TGBObjectHelper }
+
+class function TGBObjectHelper.GetAttribute<T>: T;
 var
   i: Integer;
   rType: TRttiType;
 begin
   result := nil;
-  rType  := TJsonParserRTTI.GetInstance.GetType(Self);
+  rType  := TGBRTTI.GetInstance.GetType(Self);
 
   for i := 0 to Pred(Length(rType.GetAttributes)) do
     if rType.GetAttributes[i].ClassNameIs(T.className) then
       Exit(T( rType.GetAttributes[i]));
 end;
 
-function TJsonParserObjectHelper.GetPropertyValue(Name: String): TValue;
+function TGBObjectHelper.GetPropertyValue(Name: String): TValue;
 var
   rttiProp: TRttiProperty;
 begin
-  rttiProp := TJsonParserRTTI.GetInstance.GetType(Self.ClassType)
+  if not Assigned(Self) then
+    Exit(nil);
+
+  rttiProp := TGBRTTI.GetInstance.GetType(Self.ClassType)
                 .GetProperty(Name);
 
   if Assigned(rttiProp) then
     result := rttiProp.GetValue(Self);
 end;
 
-function TJsonParserObjectHelper.invokeMethod(const MethodName: string; const Parameters: array of TValue): TValue;
+function TGBObjectHelper.invokeMethod(const MethodName: string; const Parameters: array of TValue): TValue;
 var
   rttiType: TRttiType;
   method  : TRttiMethod;
 begin
-  rttiType := TJsonParserRTTI.GetInstance.GetType(Self.ClassType);
+  rttiType := TGBRTTI.GetInstance.GetType(Self.ClassType);
   method   := rttiType.GetMethod(MethodName);
 
   if not Assigned(method) then
@@ -311,7 +374,7 @@ begin
   result := method.Invoke(Self, Parameters);
 end;
 
-class function TJsonParserObjectHelper.JsonIgnoreFields: TArray<String>;
+class function TGBObjectHelper.JsonIgnoreFields: TArray<String>;
 var
   ignore: JSONIgnore;
 begin
@@ -320,6 +383,45 @@ begin
 
   if Assigned(ignore) then
     result := ignore.IgnoreProperties;
+end;
+
+{ TTypeKindHelper }
+
+function TTypeKindHelper.IsArray: Boolean;
+begin
+  Result := Self in
+    [tkSet, tkArray, tkDynArray]
+end;
+
+function TTypeKindHelper.IsFloat: Boolean;
+begin
+  result := Self = tkFloat;
+end;
+
+function TTypeKindHelper.IsInteger: Boolean;
+begin
+  result := Self in [tkInt64, tkInteger];
+end;
+
+function TTypeKindHelper.IsObject: Boolean;
+begin
+  result := Self = tkClass;
+end;
+
+function TTypeKindHelper.IsString: Boolean;
+begin
+  result := Self in
+    [tkChar,
+     tkString,
+     tkWChar,
+     tkLString,
+     tkWString,
+     tkUString];
+end;
+
+function TTypeKindHelper.IsVariant: Boolean;
+begin
+  result := Self = tkVariant;
 end;
 
 end.

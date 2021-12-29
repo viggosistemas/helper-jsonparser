@@ -3,10 +3,14 @@ unit JSONParser.Interfaces;
 interface
 
 uses
+  JSONParser.Config,
   System.JSON,
   System.Generics.Collections;
 
 type
+  TJSONParserConfig = JSONParser.Config.TJSONParserConfig;
+  TCaseDefinition = JSONParser.Config.TCaseDefinition;
+
   IJSONParserSerializer<T: class, constructor> = interface
     ['{F808BE4D-AF1A-4BDF-BF3B-945C39762853}']
     procedure JsonObjectToObject(AObject: TObject; Value: TJSONObject); overload;
